@@ -742,14 +742,14 @@ async def start_web_server(trader):
     app.router.add_get('/api/status', handle_status)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '127.0.0.1', 58181)
+    site = web.TCPSite(runner, '0.0.0.0', 58181)
     await site.start()
 
     # 打印访问地址
-    local_ip = "127.0.0.1"  # 使用本地IPv4地址
+    local_ip = "localhost"  # 或者使用实际IP
     logging.info(f"Web服务已启动:")
     logging.info(f"- 本地访问: http://{local_ip}:58181/{home_prefix}")
-    logging.info(f"- 局域网访问: http://192.168.77.4:58181/{home_prefix}")  # 使用实际的IPv4地址
+    logging.info(f"- 局域网访问: http://0.0.0.0:58181/{home_prefix}")
 
 async def handle_log_content(request):
     """只返回日志内容的API端点"""
