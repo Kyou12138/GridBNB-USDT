@@ -238,20 +238,54 @@ def get_real_ip(request):
     1. X-Forwarded-For 头
     2. X-Real-IP 头
     3. request.remote
+    
+    优先返回IPv4地址
     """
+    def is_ipv4(ip):
+        try:
+            # 移除可能的端口号
+            ip = ip.split(':')[0]
+            # 检查是否是IPv4格式
+            parts = ip.split('.')
+            return len(parts) == 4 and all(0 <= int(part) <= 255 for part in parts)
+        except:
+            return False
+
     # 尝试从X-Forwarded-For获取
     forwarded = request.headers.get('X-Forwarded-For')
     if forwarded:
-        # 取第一个IP（最原始的客户端IP）
-        return forwarded.split(',')[0].strip()
+        # 获取所有IP地址
+        ips = [ip.strip() for ip in forwarded.split(',')]
+        # 优先返回IPv4地址
+        for ip in ips:
+            if is_ipv4(ip):
+                return ip
+        # 如果没有IPv4，返回第一个IP
+        return ips[0]
     
     # 尝试从X-Real-IP获取
     real_ip = request.headers.get('X-Real-IP')
     if real_ip:
-        return real_ip
+        if is_ipv4(real_ip):
+            return real_ip
     
     # 如果都没有，使用remote
-    return request.remote
+    remote = request.remote
+    if is_ipv4(remote):
+        return remote
+    
+    # 如果remote是IPv6，尝试获取本地IPv4
+    try:
+        import socket
+        hostname = socket.gethostname()
+        local_ip = socket.gethostbyname(hostname)
+        if is_ipv4(local_ip):
+            return local_ip
+    except:
+        pass
+    
+    # 如果都失败了，返回原始remote
+    return remote
 
 async def handle_log(request):
     try:
@@ -708,14 +742,14 @@ async def start_web_server(trader):
     app.router.add_get('/api/status', handle_status)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 58181)
+    site = web.TCPSite(runner, '127.0.0.1', 58181)
     await site.start()
 
     # 打印访问地址
-    local_ip = "localhost"  # 或者使用实际IP
+    local_ip = "127.0.0.1"  # 使用本地IPv4地址
     logging.info(f"Web服务已启动:")
     logging.info(f"- 本地访问: http://{local_ip}:58181/{home_prefix}")
-    logging.info(f"- 局域网访问: http://0.0.0.0:58181/{home_prefix}")
+    logging.info(f"- 局域网访问: http://192.168.77.4:58181/{home_prefix}")  # 使用实际的IPv4地址
 
 async def handle_log_content(request):
     """只返回日志内容的API端点"""
