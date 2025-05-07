@@ -460,7 +460,7 @@ async def handle_log(request):
                                     <td class="px-6 py-4">{record["device"]} ({record["device_type"]})</td>
                                     <td class="px-6 py-4">{record["os"]}</td>
                                     <td class="px-6 py-4">{record["visit_count"]}</td>
-                                    <td class="px-6 py-4">{record["avg_interval"]}</td>
+                                    <td class="px-6 py-4">{record.get("avg_interval", "N/A")}</td>
                                     <td class="px-6 py-4">{record["first_visit"]}</td>
                                     <td class="px-6 py-4">{record["path"]}</td>
                                 </tr>
