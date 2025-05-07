@@ -3,8 +3,9 @@ import os
 from helpers import LogConfig
 import aiofiles
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import psutil
+import re
 
 class IPLogger:
     def __init__(self):
@@ -12,21 +13,178 @@ class IPLogger:
         self.max_records = 100  # 最多保存100条记录
         self._log_cache = {'content': None, 'timestamp': 0}  # 添加日志缓存
         self._cache_ttl = 2  # 缓存有效期（秒）
+        self._visit_stats = {}  # 访问频率统计
 
-    def add_record(self, ip, path):
-        # 查找是否存在相同IP的记录
+    def _parse_user_agent(self, user_agent):
+        """解析User-Agent字符串，提取浏览器和设备信息"""
+        try:
+            # 浏览器检测
+            browser = "Unknown"
+            browser_version = ""
+            
+            # Chrome/Chromium
+            if "Chrome" in user_agent and "Chromium" not in user_agent and "Edg" not in user_agent:
+                browser = "Chrome"
+                version_match = re.search(r"Chrome/(\d+\.\d+\.\d+\.\d+)", user_agent)
+                if version_match:
+                    browser_version = version_match.group(1)
+            
+            # Firefox
+            elif "Firefox" in user_agent:
+                browser = "Firefox"
+                version_match = re.search(r"Firefox/(\d+\.\d+)", user_agent)
+                if version_match:
+                    browser_version = version_match.group(1)
+            
+            # Safari
+            elif "Safari" in user_agent and "Chrome" not in user_agent:
+                browser = "Safari"
+                version_match = re.search(r"Version/(\d+\.\d+\.\d+)", user_agent)
+                if version_match:
+                    browser_version = version_match.group(1)
+            
+            # Edge
+            elif "Edg" in user_agent:
+                browser = "Edge"
+                version_match = re.search(r"Edg/(\d+\.\d+\.\d+\.\d+)", user_agent)
+                if version_match:
+                    browser_version = version_match.group(1)
+            
+            # Internet Explorer
+            elif "MSIE" in user_agent or "Trident" in user_agent:
+                browser = "Internet Explorer"
+                version_match = re.search(r"MSIE (\d+\.\d+)", user_agent)
+                if version_match:
+                    browser_version = version_match.group(1)
+            
+            # Opera
+            elif "OPR" in user_agent:
+                browser = "Opera"
+                version_match = re.search(r"OPR/(\d+\.\d+\.\d+)", user_agent)
+                if version_match:
+                    browser_version = version_match.group(1)
+            
+            # 设备检测
+            device = "Desktop"
+            device_type = "Unknown"
+            
+            # 移动设备检测
+            if "Mobile" in user_agent:
+                device = "Mobile"
+                if "iPhone" in user_agent:
+                    device_type = "iPhone"
+                elif "iPad" in user_agent:
+                    device = "Tablet"
+                    device_type = "iPad"
+                elif "Android" in user_agent:
+                    if "Tablet" in user_agent:
+                        device = "Tablet"
+                    device_type = "Android"
+                elif "Windows Phone" in user_agent:
+                    device_type = "Windows Phone"
+            
+            # 平板设备检测
+            elif "Tablet" in user_agent:
+                device = "Tablet"
+                if "iPad" in user_agent:
+                    device_type = "iPad"
+                elif "Android" in user_agent:
+                    device_type = "Android Tablet"
+            
+            # 操作系统检测
+            os_name = "Unknown"
+            if "Windows" in user_agent:
+                os_name = "Windows"
+            elif "Mac OS X" in user_agent:
+                os_name = "macOS"
+            elif "Linux" in user_agent:
+                os_name = "Linux"
+            elif "Android" in user_agent:
+                os_name = "Android"
+            elif "iOS" in user_agent:
+                os_name = "iOS"
+            
+            return {
+                'browser': browser,
+                'browser_version': browser_version,
+                'device': device,
+                'device_type': device_type,
+                'os': os_name,
+                'user_agent': user_agent
+            }
+        except Exception:
+            return {
+                'browser': "Unknown",
+                'browser_version': "",
+                'device': "Unknown",
+                'device_type': "Unknown",
+                'os': "Unknown",
+                'user_agent': user_agent
+            }
+
+    def _update_visit_stats(self, ip, browser):
+        """更新访问频率统计"""
+        key = f"{ip}_{browser}"
+        now = datetime.now()
+        
+        if key not in self._visit_stats:
+            self._visit_stats[key] = {
+                'first_visit': now,
+                'last_visit': now,
+                'visit_count': 1,
+                'visit_times': [now]
+            }
+        else:
+            stats = self._visit_stats[key]
+            stats['last_visit'] = now
+            stats['visit_count'] += 1
+            stats['visit_times'].append(now)
+            
+            # 只保留最近24小时的访问记录
+            cutoff_time = now - timedelta(hours=24)
+            stats['visit_times'] = [t for t in stats['visit_times'] if t > cutoff_time]
+            
+            # 计算访问频率
+            if len(stats['visit_times']) > 1:
+                time_diffs = [(stats['visit_times'][i] - stats['visit_times'][i-1]).total_seconds() 
+                            for i in range(1, len(stats['visit_times']))]
+                stats['avg_interval'] = sum(time_diffs) / len(time_diffs)
+            else:
+                stats['avg_interval'] = None
+
+    def add_record(self, ip, path, user_agent=None):
+        # 解析User-Agent
+        ua_info = self._parse_user_agent(user_agent) if user_agent else {
+            'browser': "Unknown",
+            'browser_version': "",
+            'device': "Unknown",
+            'device_type': "Unknown",
+            'os': "Unknown",
+            'user_agent': "Unknown"
+        }
+        
+        # 更新访问统计
+        self._update_visit_stats(ip, ua_info['browser'])
+        
+        # 查找是否存在相同IP和浏览器的记录
         for record in self.ip_records:
-            if record['ip'] == ip:
-                # 如果找到相同IP，只更新时间
+            if record['ip'] == ip and record['browser'] == ua_info['browser']:
+                # 如果找到相同IP和浏览器，只更新时间
                 record['time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 record['path'] = path  # 更新访问路径
                 return
         
-        # 如果是新IP，添加新记录
+        # 如果是新IP或新浏览器，添加新记录
         record = {
             'ip': ip,
             'path': path,
-            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'browser': ua_info['browser'],
+            'browser_version': ua_info['browser_version'],
+            'device': ua_info['device'],
+            'device_type': ua_info['device_type'],
+            'os': ua_info['os'],
+            'user_agent': ua_info['user_agent']
         }
         self.ip_records.append(record)
         
@@ -35,7 +193,16 @@ class IPLogger:
             self.ip_records.pop(0)
 
     def get_records(self):
-        return self.ip_records
+        """获取访问记录，并添加访问频率信息"""
+        records = self.ip_records.copy()
+        for record in records:
+            key = f"{record['ip']}_{record['browser']}"
+            if key in self._visit_stats:
+                stats = self._visit_stats[key]
+                record['visit_count'] = stats['visit_count']
+                record['avg_interval'] = f"{stats['avg_interval']:.1f}s" if stats['avg_interval'] else "N/A"
+                record['first_visit'] = stats['first_visit'].strftime('%Y-%m-%d %H:%M:%S')
+        return records
 
 def get_system_stats():
     """获取系统资源使用情况"""
@@ -64,11 +231,34 @@ async def _read_log_content():
     lines.reverse()
     return '\n'.join(lines)
 
+def get_real_ip(request):
+    """获取真实的客户端IP地址
+    
+    按以下顺序尝试获取IP:
+    1. X-Forwarded-For 头
+    2. X-Real-IP 头
+    3. request.remote
+    """
+    # 尝试从X-Forwarded-For获取
+    forwarded = request.headers.get('X-Forwarded-For')
+    if forwarded:
+        # 取第一个IP（最原始的客户端IP）
+        return forwarded.split(',')[0].strip()
+    
+    # 尝试从X-Real-IP获取
+    real_ip = request.headers.get('X-Real-IP')
+    if real_ip:
+        return real_ip
+    
+    # 如果都没有，使用remote
+    return request.remote
+
 async def handle_log(request):
     try:
         # 记录IP访问
-        ip = request.remote
-        request.app['ip_logger'].add_record(ip, request.path)
+        ip = get_real_ip(request)
+        user_agent = request.headers.get('User-Agent', 'Unknown')
+        request.app['ip_logger'].add_record(ip, request.path, user_agent)
         
         # 获取系统资源状态
         system_stats = get_system_stats()
@@ -252,6 +442,12 @@ async def handle_log(request):
                                 <tr class="bg-gray-50">
                                     <th class="px-6 py-3 text-left">时间</th>
                                     <th class="px-6 py-3 text-left">IP地址</th>
+                                    <th class="px-6 py-3 text-left">浏览器</th>
+                                    <th class="px-6 py-3 text-left">设备</th>
+                                    <th class="px-6 py-3 text-left">操作系统</th>
+                                    <th class="px-6 py-3 text-left">访问次数</th>
+                                    <th class="px-6 py-3 text-left">平均间隔</th>
+                                    <th class="px-6 py-3 text-left">首次访问</th>
                                     <th class="px-6 py-3 text-left">访问路径</th>
                                 </tr>
                             </thead>
@@ -260,6 +456,12 @@ async def handle_log(request):
                                 <tr class="border-b">
                                     <td class="px-6 py-4">{record["time"]}</td>
                                     <td class="px-6 py-4">{record["ip"]}</td>
+                                    <td class="px-6 py-4">{record["browser"]} {record["browser_version"]}</td>
+                                    <td class="px-6 py-4">{record["device"]} ({record["device_type"]})</td>
+                                    <td class="px-6 py-4">{record["os"]}</td>
+                                    <td class="px-6 py-4">{record["visit_count"]}</td>
+                                    <td class="px-6 py-4">{record["avg_interval"]}</td>
+                                    <td class="px-6 py-4">{record["first_visit"]}</td>
                                     <td class="px-6 py-4">{record["path"]}</td>
                                 </tr>
                                 ''' for record in list(reversed(request.app['ip_logger'].get_records()))[:5]])}
