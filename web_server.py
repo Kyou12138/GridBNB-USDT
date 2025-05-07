@@ -200,8 +200,11 @@ class IPLogger:
             if key in self._visit_stats:
                 stats = self._visit_stats[key]
                 record['visit_count'] = stats['visit_count']
-                record['avg_interval'] = f"{stats['avg_interval']:.1f}s" if stats['avg_interval'] else "N/A"
                 record['first_visit'] = stats['first_visit'].strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                # 如果没有统计信息，设置默认值
+                record['visit_count'] = 1
+                record['first_visit'] = record['time']  # 使用记录时间作为首次访问时间
         return records
 
 def get_system_stats():
@@ -480,7 +483,6 @@ async def handle_log(request):
                                     <th class="px-6 py-3 text-left">设备</th>
                                     <th class="px-6 py-3 text-left">操作系统</th>
                                     <th class="px-6 py-3 text-left">访问次数</th>
-                                    <th class="px-6 py-3 text-left">平均间隔</th>
                                     <th class="px-6 py-3 text-left">首次访问</th>
                                     <th class="px-6 py-3 text-left">访问路径</th>
                                 </tr>
@@ -494,7 +496,6 @@ async def handle_log(request):
                                     <td class="px-6 py-4">{record["device"]} ({record["device_type"]})</td>
                                     <td class="px-6 py-4">{record["os"]}</td>
                                     <td class="px-6 py-4">{record["visit_count"]}</td>
-                                    <td class="px-6 py-4">{record.get("avg_interval", "N/A")}</td>
                                     <td class="px-6 py-4">{record["first_visit"]}</td>
                                     <td class="px-6 py-4">{record["path"]}</td>
                                 </tr>
