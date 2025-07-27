@@ -27,4 +27,8 @@ services:
       timeout: 10s
       retries: 3
 
+# 定义网络
+networks:
+  gridbnb-network:
+    driver: bridge
 
