@@ -14,8 +14,8 @@ services:
     expose:
       - "58181"
     # 生产环境安全配置：移除直接端口映射，只允许通过Nginx访问
-    # ports:
-    #   - "8080:58181"  # 已注释：防止绕过Nginx的直接访问
+    ports:
+      - "8080:58181"  # 已注释：防止绕过Nginx的直接访问
     volumes:
       - ./:/app
       - ./data:/app/data  # 持久化数据目录
@@ -27,28 +27,4 @@ services:
       timeout: 10s
       retries: 3
 
-  # Nginx 反向代理服务
-  nginx:
-    image: nginx:alpine
-    container_name: gridbnb-nginx
-    restart: always
-    ports:
-      - "80:80"  # 外部访问端口
-      - "443:443"  # 为将来的HTTPS准备
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/logs:/var/log/nginx
-    depends_on:
-      - gridbnb-bot
-    networks:
-      - gridbnb-network
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
-# 定义网络
-networks:
-  gridbnb-network:
-    driver: bridge
